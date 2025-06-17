@@ -1,6 +1,30 @@
-# Enterprise Smart Contract & Wallet Platform
+# 🚀 Enterprise Smart Contract & Wallet Platform
 
 A production-ready blockchain wallet and smart contract platform built with **blockchain-native architecture**, featuring enterprise-grade wallet management, smart contract deployment, and multi-chain support like Robinhood, Binance, and Coinbase.
+
+## ⚡ **INSTANT SETUP - ONE COMMAND TO RULE THEM ALL**
+
+```bash
+# Start the entire enterprise platform instantly with Docker
+chmod +x start.sh && ./start.sh
+```
+
+**That's it!** Your enterprise blockchain platform is now running with:
+- ✅ Local blockchain with smart contracts auto-deployed
+- ✅ RESTful API with interactive documentation  
+- ✅ Wallet management system with 20 test accounts
+- ✅ Enterprise database, monitoring & analytics
+- ✅ Complete testing suite and security features
+
+**→ See [DOCKER_QUICK_START.md](DOCKER_QUICK_START.md) for the complete modern setup guide.**
+
+**Access your platform:**
+- 📡 **API Docs**: http://localhost:8001/docs
+- 🏥 **Health Check**: http://localhost:8001/health
+- 📊 **Grafana Analytics**: http://localhost:3002
+- ⛓️ **Blockchain RPC**: http://localhost:8547
+
+---
 
 ## 🏗️ Blockchain-Native Architecture
 

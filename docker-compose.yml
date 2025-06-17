@@ -1,0 +1,242 @@
+name: enterprise-blockchain-platform
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: smart-contract-postgres
+    environment:
+      POSTGRES_DB: blockchain_platform
+      POSTGRES_USER: blockchain_user
+      POSTGRES_PASSWORD: blockchain_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockchain_user -d blockchain_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - blockchain_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: smart-contract-redis
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - blockchain_network
+
+  # Local Blockchain (Hardhat Node)
+  blockchain:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: smart-contract-blockchain
+    ports:
+      - "8547:8545"
+      - "8548:8546"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./blockchain:/app
+      - blockchain_data:/app/cache
+    command: npx hardhat node --hostname 0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - blockchain_network
+
+  # Contract Deployer (runs once to deploy contracts)
+  contract_deployer:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: smart-contract-deployer
+    environment:
+      - NODE_ENV=development
+      - BLOCKCHAIN_URL=http://blockchain:8545
+    volumes:
+      - ./blockchain:/app
+      - ./shared:/shared
+    command: >
+      sh -c "
+        echo 'Waiting for blockchain node...' &&
+        sleep 30 &&
+        npm run deploy:docker &&
+        echo 'Contracts deployed! Addresses saved to /shared/contracts.json'
+      "
+    depends_on:
+      blockchain:
+        condition: service_healthy
+    networks:
+      - blockchain_network
+
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smart-contract-api
+    ports:
+      - "8001:8000"
+    environment:
+      # App Configuration
+      - APP_NAME=Enterprise Blockchain Platform
+      - APP_VERSION=1.0.0
+      - DEBUG=true
+      - ENVIRONMENT=development
+      
+      # Server Configuration
+      - HOST=0.0.0.0
+      - PORT=8000
+      
+      # Security
+      - SECRET_KEY=enterprise-blockchain-platform-docker-secret-key-super-secure
+      
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://blockchain_user:blockchain_password@postgres:5432/blockchain_platform
+      
+      # Redis
+      - REDIS_URL=redis://redis:6379/0
+      
+      # Blockchain
+      - BLOCKCHAIN_NETWORK=localhost
+      - BLOCKCHAIN_URL=http://blockchain:8545
+      - ALCHEMY_API_KEY=demo-key
+      - PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - PLATFORM_TREASURY_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+      
+      # Features
+      - ENABLE_PUBLIC_MINTING=true
+      - ENABLE_MARKETPLACE=true
+      - PROMETHEUS_METRICS=true
+      
+      # CORS
+      - BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000
+    volumes:
+      - ./backend:/app
+      - ./shared:/shared
+    command: >
+      sh -c "
+        echo 'Waiting for dependencies...' &&
+        sleep 45 &&
+        python -m app.main
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      blockchain:
+        condition: service_healthy
+      contract_deployer:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - blockchain_network
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: smart-contract-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - blockchain_network
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: smart-contract-grafana
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - blockchain_network
+
+  # IPFS Node (for metadata storage)
+  ipfs:
+    image: ipfs/go-ipfs:latest
+    container_name: smart-contract-ipfs
+    ports:
+      - "4002:4001"
+      - "5002:5001"
+      - "8081:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    networks:
+      - blockchain_network
+
+  # Nginx Load Balancer / Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: smart-contract-nginx
+    ports:
+      - "8082:80"
+      - "8443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+    networks:
+      - blockchain_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  blockchain_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  ipfs_data:
+    driver: local
+
+networks:
+  blockchain_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

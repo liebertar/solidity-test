@@ -11,7 +11,7 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 
 # Redis for caching
-redis[hiredis]==5.0.1
+redis==4.6.0
 aioredis==2.0.1
 
 # Web3 and Blockchain
