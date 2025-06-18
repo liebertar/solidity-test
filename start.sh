@@ -204,3 +204,5 @@ case $ACTION in
         echo ""
         ;;
 esac 
+
+cd infra/compose/monitoring && docker compose up -d 
